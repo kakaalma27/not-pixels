@@ -2,6 +2,7 @@ const axios = require("axios");
 const fs = require("fs");
 const os = require("os");
 const readline = require("readline");
+const runGetSession = require("./getSession");
 
 const userAgentGenerator = {
   edge: function () {
@@ -68,17 +69,28 @@ const userAgentGenerator = {
     return userAgent;
   },
 };
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-async function getUser(bearerQuery, randomUserAgent) {
+
+async function fetchData() {
+  try {
+    const response = await axios.get("http://localhost:3000/get-data");
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching data:", error);
+  }
+}
+
+async function getUser(initData, randomUserAgent) {
   await sleep(10000);
   return axios.get("https://notpx.app/api/v1/users/me", {
     headers: {
       accept: "application/json, text/plain, */*",
       "accept-encoding": "gzip, deflate, br, zstd",
       "accept-language": "en-US,en;q=0.9",
-      authorization: `initData ${bearerQuery}`,
+      authorization: `initData ${initData}`,
       "User-Agent": randomUserAgent,
       priority: "u=1, i",
       Referer: "https://image.notpx.app/",
@@ -95,14 +107,14 @@ async function getUser(bearerQuery, randomUserAgent) {
   });
 }
 
-async function getUserInfo(bearerQuery, randomUserAgent) {
+async function getUserInfo(initData, randomUserAgent) {
   await sleep(10000);
   return axios.get("https://notpx.app/api/v1/mining/status", {
     headers: {
       accept: "application/json, text/plain, */*",
       "accept-encoding": "gzip, deflate, br, zstd",
       "accept-language": "en-US,en;q=0.9",
-      authorization: `initData ${bearerQuery}`,
+      authorization: `initData ${initData}`,
       "User-Agent": randomUserAgent,
       priority: "u=1, i",
       Referer: "https://image.notpx.app/",
@@ -123,7 +135,7 @@ function getRandomPixelId(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-async function performAction(bearerQuery, pixelId, newColor, randomUserAgent) {
+async function performAction(initData, pixelId, newColor, randomUserAgent) {
   await sleep(10000);
   return axios.post(
     "https://notpx.app/api/v1/repaint/start",
@@ -136,7 +148,7 @@ async function performAction(bearerQuery, pixelId, newColor, randomUserAgent) {
         accept: "application/json, text/plain, */*",
         "accept-encoding": "gzip, deflate, br, zstd",
         "accept-language": "en-US,en;q=0.9",
-        authorization: `initData ${bearerQuery}`, // Bearer token passed here
+        authorization: `initData ${initData}`, // Bearer token passed here
         "content-type": "application/json",
         "content-length": 39,
         "User-Agent": randomUserAgent,
@@ -187,51 +199,71 @@ function bearerToken() {
 let randomUserAgent = userAgentGenerator.chrome();
 
 const main = async () => {
-  let bearerQueries = await bearerToken();
   while (true) {
-    for (let index = 0; index < bearerQueries.length; index++) {
-      let bearerQuery = bearerQueries[index];
-      let user = await getUser(bearerQuery, randomUserAgent);
-      let userInfo = await getUserInfo(bearerQuery, randomUserAgent);
-      let name = user.data.firstName;
-      let charges = userInfo.data.charges;
-      let repaintsTotal = userInfo.data.repaintsTotal;
-
-      console.log("Berhasil Login...");
-      console.log("name :", name);
-      console.log("Before");
-      console.log("charges :", charges);
-      console.log("repaintsTotal :", repaintsTotal);
-
-      while (charges > 0) {
-        try {
-          let randomPixelId = getRandomPixelId(4002, 366308);
-          let pixelId = randomPixelId;
-          let newColor = "#e46e6e";
-
-          let output = await performAction(
-            bearerQuery,
-            pixelId,
-            newColor,
-            randomUserAgent
-          );
-
-          console.log(output.data.balance);
-          console.log("After");
-
-          userInfo = await getUserInfo(bearerQuery, randomUserAgent);
-          charges = userInfo.data.charges;
-          repaintsTotal = userInfo.data.repaintsTotal;
-
-          console.log("charges :", charges);
-          console.log("repaintsTotal :", repaintsTotal);
-        } catch (e) {
-          console.error("Error in performing color change:", e);
-        }
-      }
-
-      console.log("All charges have been used up.");
+    let initData;
+    if (fs.existsSync("initData.json")) {
+      const storedData = JSON.parse(fs.readFileSync("initData.json"));
+      initData = storedData.initData;
     }
+
+    if (!initData) {
+      console.log("Fetching initData using getSession...");
+      initData = await runGetSession();
+      fs.writeFileSync("initData.json", JSON.stringify({ initData }));
+    } else {
+      console.log("Using existing initData:", initData);
+    }
+
+    let bearerQueries = initData;
+    console.log(bearerQueries);
+
+    let user = await getUser(bearerQueries, randomUserAgent);
+    let userInfo = await getUserInfo(bearerQueries, randomUserAgent);
+    let name = user.data.firstName;
+    let charges = userInfo.data.charges;
+    let repaintsTotal = userInfo.data.repaintsTotal;
+
+    console.log("Berhasil Login...");
+    console.log("name :", name);
+    console.log("Before");
+    console.log("charges :", charges);
+    console.log("repaintsTotal :", repaintsTotal);
+
+    while (charges > 0) {
+      try {
+        let randomPixelId = getRandomPixelId(4002, 366308);
+        let pixelId = randomPixelId;
+        let newColor = "#e46e6e";
+
+        let output = await performAction(
+          bearerQueries,
+          pixelId,
+          newColor,
+          randomUserAgent
+        );
+
+        if (output.status === 401) {
+          console.log("Unauthorized. Fetching new initData...");
+          initData = await runGetSession();
+          fs.writeFileSync("initData.json", JSON.stringify({ initData }));
+          bearerQueries = initData;
+          continue;
+        }
+
+        console.log(output.data.balance);
+        userInfo = await getUserInfo(bearerQueries, randomUserAgent);
+        charges = userInfo.data.charges;
+        repaintsTotal = userInfo.data.repaintsTotal;
+
+        console.log("charges :", charges);
+        console.log("repaintsTotal :", repaintsTotal);
+      } catch (e) {
+        console.error("Error in performing color change:", e);
+      }
+    }
+
+    console.log("All charges have been used up.");
+
     await sleep(900000);
   }
 };
