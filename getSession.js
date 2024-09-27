@@ -145,6 +145,7 @@ async function runGetSession() {
       return window.Telegram.WebApp.initData;
     });
     console.log(initData);
+    await browser.close();
     return initData;
   } else {
     console.log(

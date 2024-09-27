@@ -85,26 +85,36 @@ async function fetchData() {
 
 async function getUser(initData, randomUserAgent) {
   await sleep(10000);
-  return axios.get("https://notpx.app/api/v1/users/me", {
-    headers: {
-      accept: "application/json, text/plain, */*",
-      "accept-encoding": "gzip, deflate, br, zstd",
-      "accept-language": "en-US,en;q=0.9",
-      authorization: `initData ${initData}`,
-      "User-Agent": randomUserAgent,
-      priority: "u=1, i",
-      Referer: "https://image.notpx.app/",
-      origin: "https://image.notpx.app",
-      "Referrer-Policy": "strict-origin-when-cross-origin",
-      "sec-fetch-dest": "empty",
-      "sec-fetch-mode": "cors",
-      "sec-fetch-site": "same-site",
-      "sec-ch-ua":
-        '"Microsoft Edge";v="129", "Not=A?Brand";v="8", "Chromium";v="129", "Microsoft Edge WebView2";v="129"',
-      "sec-ch-ua-mobile": "?0",
-      "sec-ch-ua-platform": '"Windows"',
-    },
-  });
+  try {
+    const response = await axios.get("https://notpx.app/api/v1/users/me", {
+      headers: {
+        accept: "application/json, text/plain, */*",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "en-US,en;q=0.9",
+        authorization: `initData ${initData}`,
+        "User-Agent": randomUserAgent,
+        priority: "u=1, i",
+        Referer: "https://image.notpx.app/",
+        origin: "https://image.notpx.app",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "sec-ch-ua":
+          '"Microsoft Edge";v="129", "Not=A?Brand";v="8", "Chromium";v="129", "Microsoft Edge WebView2";v="129"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+      },
+    });
+    return response; // Return the response if no error occurs
+  } catch (error) {
+    if (error.response && error.response.status === 401) {
+      console.log("Unauthorized access (401). Refreshing initData...");
+      return { status: 401 }; // Return a status object indicating 401
+    }
+    console.error("Error in getting user data:", error.message);
+    return { status: error.response ? error.response.status : 500 }; // Return error status
+  }
 }
 
 async function getUserInfo(initData, randomUserAgent) {
@@ -137,35 +147,44 @@ function getRandomPixelId(min, max) {
 
 async function performAction(initData, pixelId, newColor, randomUserAgent) {
   await sleep(10000);
-  return axios.post(
-    "https://notpx.app/api/v1/repaint/start",
-    {
-      pixelId,
-      newColor,
-    },
-    {
-      headers: {
-        accept: "application/json, text/plain, */*",
-        "accept-encoding": "gzip, deflate, br, zstd",
-        "accept-language": "en-US,en;q=0.9",
-        authorization: `initData ${initData}`, // Bearer token passed here
-        "content-type": "application/json",
-        "content-length": 39,
-        "User-Agent": randomUserAgent,
-        priority: "u=1, i",
-        Referer: "https://image.notpx.app/",
-        origin: "https://image.notpx.app",
-        "Referrer-Policy": "strict-origin-when-cross-origin",
-        "sec-fetch-dest": "empty",
-        "sec-fetch-mode": "cors",
-        "sec-fetch-site": "same-site",
-        "sec-ch-ua":
-          '"Microsoft Edge";v="129", "Not=A?Brand";v="8", "Chromium";v="129", "Microsoft Edge WebView2";v="129"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
+  try {
+    const response = await axios.post(
+      "https://notpx.app/api/v1/repaint/start",
+      {
+        pixelId,
+        newColor,
       },
+      {
+        headers: {
+          accept: "application/json, text/plain, */*",
+          "accept-encoding": "gzip, deflate, br, zstd",
+          "accept-language": "en-US,en;q=0.9",
+          authorization: `initData ${initData}`, // Bearer token passed here
+          "content-type": "application/json",
+          "User-Agent": randomUserAgent,
+          priority: "u=1, i",
+          Referer: "https://image.notpx.app/",
+          origin: "https://image.notpx.app",
+          "Referrer-Policy": "strict-origin-when-cross-origin",
+          "sec-fetch-dest": "empty",
+          "sec-fetch-mode": "cors",
+          "sec-fetch-site": "same-site",
+          "sec-ch-ua":
+            '"Microsoft Edge";v="129", "Not=A?Brand";v="8", "Chromium";v="129", "Microsoft Edge WebView2";v="129"',
+          "sec-ch-ua-mobile": "?0",
+          "sec-ch-ua-platform": '"Windows"',
+        },
+      }
+    );
+    return response; // Return the response if no error occurs
+  } catch (error) {
+    if (error.response && error.response.status === 401) {
+      console.log("Unauthorized access (401). Refreshing initData...");
+      return { status: 401 }; // Return a status object indicating 401
     }
-  );
+    console.error("Error in performing action:", error.message);
+    return { status: error.response ? error.response.status : 500 }; // Return error status
+  }
 }
 
 function bearerToken() {
@@ -218,6 +237,13 @@ const main = async () => {
     console.log(bearerQueries);
 
     let user = await getUser(bearerQueries, randomUserAgent);
+    if (user.status === 401) {
+      console.log("Unauthorized. Fetching new initData...");
+      initData = await runGetSession();
+      fs.writeFileSync("initData.json", JSON.stringify({ initData }));
+      bearerQueries = initData;
+      continue; // Retry with new initData
+    }
     let userInfo = await getUserInfo(bearerQueries, randomUserAgent);
     let name = user.data.firstName;
     let charges = userInfo.data.charges;
@@ -247,7 +273,7 @@ const main = async () => {
           initData = await runGetSession();
           fs.writeFileSync("initData.json", JSON.stringify({ initData }));
           bearerQueries = initData;
-          continue;
+          continue; // Retry with new initData
         }
 
         console.log(output.data.balance);
@@ -264,7 +290,10 @@ const main = async () => {
 
     console.log("All charges have been used up.");
 
-    await sleep(900000);
+    await sleep(900000); // Wait 15 minutes before retrying
   }
 };
+
+main();
+
 main();
