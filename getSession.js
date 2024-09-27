@@ -103,7 +103,11 @@ async function loadLocalStorage(page) {
 // }
 
 async function runGetSession() {
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
+
   const page = await browser.newPage();
 
   await page.goto("https://web.telegram.org/a/#7249432100");
